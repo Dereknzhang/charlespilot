@@ -70,6 +70,9 @@ public:
 #if MODE_AUTOLAND_ENABLED
         AUTOLAND      = 26,
 #endif
+#if HAL_QUADPLANE_ENABLED
+        QTILTCRUISE   = 27,
+#endif
 
     // Mode number 30 reserved for "offboard" for external/lua control.
     };
@@ -923,6 +926,37 @@ protected:
     void _exit() override;
 };
 #endif  // QAUTOTUNE_ENABLED
+
+/*
+  QTILTCRUISE: altitude-hold tilt-rotor cruise mode.
+  - RC pitch stick > 0: tilt servos adjust continuously so vertical thrust
+    component equals hover thrust, keeping altitude constant regardless of
+    throttle. Throttle then controls forward speed.
+  - RC pitch stick <= 0: tilt servos return to vertical (hover-ready).
+*/
+class ModeQTiltCruise : public Mode
+{
+public:
+
+    Number mode_number() const override { return Number::QTILTCRUISE; }
+    const char *name()  const override { return "QTiltCruise"; }
+    const char *name4() const override { return "QTLT"; }
+
+    bool is_vtol_mode() const override { return true; }
+    // The quad sub-mode (pitch stick ≤ 0) passes throttle directly to motors,
+    // so the framework must treat this as a manual-throttle mode for landed
+    // detection, throttle-mix selection, and air-mode behaviour.
+    bool is_vtol_man_throttle() const override { return true; }
+    virtual bool is_vtol_man_mode() const override { return true; }
+    bool allows_throttle_nudging() const override { return true; }
+
+    void update() override;
+    void run() override;
+
+protected:
+
+    bool _enter() override;
+};
 
 #endif  // HAL_QUADPLANE_ENABLED
 

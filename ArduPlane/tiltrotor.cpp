@@ -282,6 +282,46 @@ void Tiltrotor::continuous_update(void)
          to forward flight and should put the rotors all the way forward
     */
 
+    // --- QTILTCRUISE: altitude-hold tilt scheduling ---
+    // When the RC pitch stick is forward (>0), compute the tilt angle at which
+    // the vertical component of rotor thrust equals the estimated hover thrust.
+    // This keeps altitude constant as the pilot varies throttle.
+    //   cos(θ) = hover_throttle / pilot_throttle
+    //   θ = arccos(hover_throttle / pilot_throttle)
+    //
+    // IMPORTANT: tilt is computed from the PILOT'S desired throttle, not from
+    // motors->get_throttle() (which includes Z-PID corrections). This decouples
+    // the two subsystems: tilt tracks pilot-intended speed, while the Z-PID in
+    // hold_hover() adds/subtracts actual motor throttle on top for altitude
+    // corrections. Using motors->get_throttle() would neutralise every upward
+    // Z-PID correction by tilting further forward, leaving the aircraft unable
+    // to recover from downward disturbances.
+    //
+    // When pitch stick is at or behind centre, slew back to vertical (θ = 0).
+    if (plane.control_mode == &plane.mode_qtiltcruise) {
+        const float pitch_in = plane.channel_pitch->get_control_in(); // -4500..+4500
+        if (pitch_in > 0) {
+            // Pilot-desired throttle sets the forward-speed/tilt target.
+            // Z-PID corrections act on actual motor throttle independently.
+            const float pilot_thr  = constrain_float(quadplane.get_pilot_throttle(), 0.01f, 1.0f);
+            const float hover_thr  = constrain_float(motors->get_throttle_hover(), 0.10f, 0.90f);
+            float tilt_frac = 0.0f;
+            if (pilot_thr > hover_thr) {
+                // arccos returns radians; convert to a 0..1 fraction of 90 deg
+                tilt_frac = degrees(acosf(hover_thr / pilot_thr)) / 90.0f;
+                // Respect the configured maximum tilt angle (Q_TILT_MAX)
+                tilt_frac = constrain_float(tilt_frac, 0.0f, max_angle_deg / 90.0f);
+            }
+            slew(tilt_frac);
+        } else {
+            // Pitch stick at or behind centre — return servos to vertical.
+            // slew() applies Q_TILT_RATE_UP so the transition is smooth.
+            slew(0.0f);
+        }
+        return;
+    }
+    // --- end QTILTCRUISE ---
+
 #if QAUTOTUNE_ENABLED
     if (plane.control_mode == &plane.mode_qautotune) {
         slew(0);
