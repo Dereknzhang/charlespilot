@@ -83,6 +83,15 @@ public:
     // as vectoring is used for yaw control
     virtual void        disable_yaw_torque(void) {}
 
+    // save all current yaw factors (call after normalise_rpy_factors())
+    virtual void        save_yaw_factors(void) {}
+
+    // set yaw factor for a single motor at runtime
+    virtual void        set_yaw_factor(uint8_t motor, float val) {}
+
+    // retrieve the saved yaw factor for a motor
+    virtual float       get_saved_yaw_factor(uint8_t motor) const { return 0.0f; }
+
     // return whether a motor is enabled or not
     bool                is_motor_enabled(uint8_t i) override { return motor_enabled[i]; }
 

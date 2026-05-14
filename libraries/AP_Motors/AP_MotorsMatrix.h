@@ -77,13 +77,13 @@ public:
     void                disable_yaw_torque(void) override;
 
     // save all current yaw factors (call after normalise_rpy_factors())
-    void                save_yaw_factors(void);
+    void                save_yaw_factors(void) override;
 
     // set yaw factor for a single motor at runtime (no initialised_ok guard — runtime call)
-    void                set_yaw_factor(uint8_t motor, float val);
+    void                set_yaw_factor(uint8_t motor, float val) override;
 
     // retrieve the saved yaw factor for a motor
-    float               get_saved_yaw_factor(uint8_t motor) const;
+    float               get_saved_yaw_factor(uint8_t motor) const override;
 
     // add_motor using raw roll, pitch, throttle and yaw factors
     void                add_motor_raw(int8_t motor_num, float roll_fac, float pitch_fac, float yaw_fac, uint8_t testing_order, float throttle_factor = 1.0f);
