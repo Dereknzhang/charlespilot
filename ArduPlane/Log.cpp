@@ -448,11 +448,12 @@ const struct LogStructure Plane::log_structure[] = {
 // @Description: Tiltrotor tilt values
 // @Field: TimeUS: Time since system startup
 // @Field: Tilt: Current tilt angle, 0 deg vertical, 90 deg horizontal
-// @Field: FL: Front left tilt angle, 0 deg vertical, 90 deg horizontal
-// @Field: FR: Front right tilt angle, 0 deg vertical, 90 deg horizontal
+// @Field: FL: Left tilt servo angle — rear-left for partial-tilt vehicles (fixed front motors), front-left for full-tilt vehicles, 0 deg vertical, 90 deg horizontal
+// @Field: FR: Right tilt servo angle — rear-right for partial-tilt vehicles (fixed front motors), front-right for full-tilt vehicles, 0 deg vertical, 90 deg horizontal
+// @Field: RYBlend: Rear yaw blend (0=RPM torque yaw, 1=vectored servo yaw)
 #if HAL_QUADPLANE_ENABLED
     { LOG_TILT_MSG, sizeof(Tiltrotor::log_tiltrotor),
-      "TILT", "Qfff",  "TimeUS,Tilt,FL,FR", "sddd", "F---" , true },
+      "TILT", "Qffff",  "TimeUS,Tilt,FL,FR,RYBlend", "sdddd", "F----" , true },
 #endif
 
 // @LoggerMessage: PIDG

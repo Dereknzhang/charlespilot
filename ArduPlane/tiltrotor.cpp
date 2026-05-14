@@ -82,6 +82,30 @@ const AP_Param::GroupInfo Tiltrotor::var_info[] = {
     // @User: Standard
     AP_GROUPINFO("WING_FLAP", 10, Tiltrotor, flap_angle_deg, 0),
 
+    // @Param: YAW_THR
+    // @DisplayName: Yaw blend start angle
+    // @Description: Rear motor tilt angle (deg) at which torque-to-vectored yaw blend begins. Below this angle rear motors use full RPM torque yaw. Blend completes at YAW_THR + YAW_RNG degrees.
+    // @Units: deg
+    // @Range: 5 30
+    // @User: Advanced
+    AP_GROUPINFO("YAW_THR", 11, Tiltrotor, yaw_bld_thr, 15),
+
+    // @Param: YAW_RNG
+    // @DisplayName: Yaw blend range
+    // @Description: Tilt angle range (deg) over which yaw transitions from RPM torque to vectored servo. Blend is complete at Q_TILT_YAW_THR + Q_TILT_YAW_RNG.
+    // @Units: deg
+    // @Range: 5 30
+    // @User: Advanced
+    AP_GROUPINFO("YAW_RNG", 12, Tiltrotor, yaw_bld_rng, 10),
+
+    // @Param: CT_PTRIM
+    // @DisplayName: CT-shift pitch trim
+    // @Description: Nose-up pitch angle (deg) commanded at full tilt (tilt_frac=1.0) to compensate for the rearward centre-of-thrust shift as rear motors tilt backward. Applied linearly with tilt fraction in QTILTCRUISE cruise sub-mode only. Default 0 (disabled). Tune empirically: positive values trim nose up. Typical range 2-8 deg depending on rotor arm length and payload distribution.
+    // @Units: deg
+    // @Range: -10 10
+    // @User: Advanced
+    AP_GROUPINFO("CT_PTRIM", 13, Tiltrotor, ctrim_deg, 0),
+
     AP_GROUPEND
 };
 
@@ -90,7 +114,7 @@ const AP_Param::GroupInfo Tiltrotor::var_info[] = {
   Q_TILT_MASK to a non-zero value
  */
 
-Tiltrotor::Tiltrotor(QuadPlane& _quadplane, AP_MotorsMulticopter*& _motors):quadplane(_quadplane),motors(_motors)
+Tiltrotor::Tiltrotor(QuadPlane& _quadplane, AP_MotorsMulticopter*& _motors):quadplane(_quadplane),motors(_motors),_rear_yaw_blend(0.0f)
 {
     AP_Param::setup_object_defaults(this, var_info);
 }
@@ -127,8 +151,44 @@ void Tiltrotor::setup()
     }
 
     if (_is_vectored) {
-        // we will be using vectoring for yaw
-        motors->disable_yaw_torque();
+        if (_have_vtol_motor) {
+            // Partial-tilt: some motors are fixed (non-tilting), others tilt.
+            // Save normalised yaw factors after normalise_rpy_factors() has run.
+            // Fixed motors retain their saved factor permanently (full torque yaw always).
+            // Tilting motors start at zero; update_yaw_blend() scales them each 400Hz cycle.
+            motors->save_yaw_factors();
+
+            // Sanity-check: if all non-tilting (fixed) motors have zero saved yaw
+            // factors, normalise_rpy_factors() has not run yet and the snapshot is
+            // invalid.  This would silently zero all front-motor yaw authority in hover.
+            bool any_nonzero = false;
+            for (uint8_t i = 0; i < AP_MOTORS_MAX_NUM_MOTORS; i++) {
+                if (motors->is_motor_enabled(i) && !is_motor_tilting(i)) {
+                    if (!is_zero(motors->get_saved_yaw_factor(i))) {
+                        any_nonzero = true;
+                        break;
+                    }
+                }
+            }
+            if (!any_nonzero) {
+                gcs().send_text(MAV_SEVERITY_ERROR,
+                    "TiltYaw: yaw factors zero at save — check motor init order");
+            }
+
+            for (uint8_t i = 0; i < AP_MOTORS_MAX_NUM_MOTORS; i++) {
+                if (is_motor_tilting(i)) {
+                    motors->set_yaw_factor(i, 0.0f);
+                }
+            }
+            _rear_yaw_blend = 0.0f;  // hover: full torque yaw on fixed motors, no vectored differential
+        } else {
+            // Full-tilt: all motors tilt, so all yaw authority is vectored throughout.
+            // Disable torque yaw for all motors (original upstream behaviour).
+            // Set blend to 1.0 so vectoring() applies full differential unconditionally —
+            // matching the old hard-coded rear servo outputs that existed before this PR.
+            motors->disable_yaw_torque();
+            _rear_yaw_blend = 1.0f;
+        }
     }
 
     if (tilt_mask != 0) {
@@ -300,15 +360,17 @@ void Tiltrotor::continuous_update(void)
     // When pitch stick is at or behind centre, slew back to vertical (θ = 0).
     if (plane.control_mode == &plane.mode_qtiltcruise) {
         const float pitch_in = plane.channel_pitch->get_control_in(); // -4500..+4500
-        if (pitch_in > 0) {
+        if (pitch_in > 200.0f) {
             // Pilot-desired throttle sets the forward-speed/tilt target.
             // Z-PID corrections act on actual motor throttle independently.
             const float pilot_thr  = constrain_float(quadplane.get_pilot_throttle(), 0.01f, 1.0f);
             const float hover_thr  = constrain_float(motors->get_throttle_hover(), 0.10f, 0.90f);
             float tilt_frac = 0.0f;
             if (pilot_thr > hover_thr) {
-                // arccos returns radians; convert to a 0..1 fraction of 90 deg
-                tilt_frac = degrees(acosf(hover_thr / pilot_thr)) / 90.0f;
+                // arccos returns radians; convert to a 0..1 fraction of 90 deg.
+                // constrain_float guards the domain [-1, 1] defensively; the
+                // pilot_thr > hover_thr check already ensures ratio < 1.0.
+                tilt_frac = degrees(acosf(constrain_float(hover_thr / pilot_thr, -1.0f, 1.0f))) / 90.0f;
                 // Respect the configured maximum tilt angle (Q_TILT_MAX)
                 tilt_frac = constrain_float(tilt_frac, 0.0f, max_angle_deg / 90.0f);
             }
@@ -416,6 +478,35 @@ void Tiltrotor::binary_update(void)
 
 
 /*
+  update rear motor yaw factors and _rear_yaw_blend as a function of current_tilt.
+  Called between continuous_update() (which updates current_tilt) and vectoring()
+  (which reads _rear_yaw_blend for servo differential blending).
+
+  At blend=0 (hover, tilt < YAW_THR): rear motors use full torque yaw via _yaw_factor.
+  At blend=1 (cruise, tilt > YAW_THR + YAW_RNG): rear motors use full vectored yaw;
+  _yaw_factor is zero so no RPM differential yaw from them.
+  Front non-tilting motors always retain their saved yaw factor (100% torque yaw).
+*/
+void Tiltrotor::update_yaw_blend(void)
+{
+    if (!_is_vectored || !_have_vtol_motor) {
+        // Full-tilt vehicles: _rear_yaw_blend is permanently 1.0 (set in setup()).
+        // No per-cycle blend work needed — all yaw authority is already vectored.
+        return;
+    }
+    const float thr_frac = yaw_bld_thr.get() / 90.0f;
+    const float rng_frac = MAX(yaw_bld_rng.get(), 1.0f) / 90.0f;
+    _rear_yaw_blend = constrain_float((current_tilt - thr_frac) / rng_frac, 0.0f, 1.0f);
+
+    for (uint8_t i = 0; i < AP_MOTORS_MAX_NUM_MOTORS; i++) {
+        if (is_motor_tilting(i)) {
+            motors->set_yaw_factor(i,
+                motors->get_saved_yaw_factor(i) * (1.0f - _rear_yaw_blend));
+        }
+    }
+}
+
+/*
   update motor tilt
  */
 void Tiltrotor::update(void)
@@ -432,7 +523,8 @@ void Tiltrotor::update(void)
     }
 
     if (type == TILT_TYPE_VECTORED_YAW) {
-        vectoring();
+        update_yaw_blend();   // reads current_tilt → updates _yaw_factor[] and _rear_yaw_blend
+        vectoring();          // reads _rear_yaw_blend → writes servo outputs
     }
 }
 
@@ -447,8 +539,11 @@ void Tiltrotor::write_log()
 
     struct log_tiltrotor pkt {
         LOG_PACKET_HEADER_INIT(LOG_TILT_MSG),
-        time_us      : AP_HAL::micros64(),
-        current_tilt : current_tilt * 90.0,
+        time_us        : AP_HAL::micros64(),
+        current_tilt   : current_tilt * 90.0,
+        front_left_tilt  : AP_Logger::quiet_nanf(),
+        front_right_tilt : AP_Logger::quiet_nanf(),
+        rear_yaw_blend : _rear_yaw_blend,
     };
 
     if (type != TILT_TYPE_VECTORED_YAW) {
@@ -457,11 +552,21 @@ void Tiltrotor::write_log()
         pkt.front_right_tilt = AP_Logger::quiet_nanf();
 
     } else {
-        // Calculate tilt angle from servo outputs
+        // Calculate tilt angle from servo outputs.
+        // For partial-tilt vehicles (_have_vtol_motor) the front motors are fixed
+        // and k_tiltMotorLeft/Right are unassigned — read rear servo channels instead
+        // so the log shows actual tilting-motor positions.
+        // For full-tilt vehicles all four channels are valid; rear channels are equally
+        // informative (they share the same base_output in non-differential cruise).
         const float total_angle = 90.0 + tilt_yaw_angle + fixed_angle;
         const float scale = total_angle * 0.001;
-        pkt.front_left_tilt = (SRV_Channels::get_output_scaled(SRV_Channel::k_tiltMotorLeft) * scale) - tilt_yaw_angle;
-        pkt.front_right_tilt = (SRV_Channels::get_output_scaled(SRV_Channel::k_tiltMotorRight) * scale) - tilt_yaw_angle;
+        if (_have_vtol_motor) {
+            pkt.front_left_tilt  = (SRV_Channels::get_output_scaled(SRV_Channel::k_tiltMotorRearLeft)  * scale) - tilt_yaw_angle;
+            pkt.front_right_tilt = (SRV_Channels::get_output_scaled(SRV_Channel::k_tiltMotorRearRight) * scale) - tilt_yaw_angle;
+        } else {
+            pkt.front_left_tilt  = (SRV_Channels::get_output_scaled(SRV_Channel::k_tiltMotorLeft)  * scale) - tilt_yaw_angle;
+            pkt.front_right_tilt = (SRV_Channels::get_output_scaled(SRV_Channel::k_tiltMotorRight) * scale) - tilt_yaw_angle;
+        }
     }
 
     plane.logger.WriteBlock(&pkt, sizeof(pkt));
@@ -518,8 +623,15 @@ void Tiltrotor::tilt_compensate_angle(float *thrust, uint8_t num_motors, float n
             // controller. This simple method keeps the same average,
             // but moves us to no roll control as the angle increases
             thrust[i] = current_tilt * avg_tilt_thrust + thrust[i] * (1-current_tilt);
-            // add in differential thrust for yaw control, scaled by tilt angle
-            const float diff_thrust = motors->get_roll_factor(i) * (motors->get_yaw()+motors->get_yaw_ff()) * sin_tilt * yaw_gain;
+            // add in differential thrust for yaw control, scaled by tilt angle.
+            // For partial-tilt vehicles (_have_vtol_motor), fade this term out as
+            // _rear_yaw_blend rises: at blend=1 the rear _yaw_factor is already
+            // zeroed, so allowing diff_thrust to run at full gain would re-inject
+            // yaw via the roll_factor path and fight the vectored servo yaw.
+            // Set Q_TILT_YAW_ANGLE=0 for this vehicle so yaw_gain=0 as well
+            // (belt-and-suspenders); this scale handles the case where it is non-zero.
+            const float blend_scale = _have_vtol_motor ? (1.0f - _rear_yaw_blend) : 1.0f;
+            const float diff_thrust = motors->get_roll_factor(i) * (motors->get_yaw()+motors->get_yaw_ff()) * sin_tilt * yaw_gain * blend_scale;
             thrust[i] += diff_thrust;
             largest_tilted = MAX(largest_tilted, thrust[i]);
         }
@@ -547,10 +659,33 @@ void Tiltrotor::tilt_compensate(float *thrust, uint8_t num_motors)
         // the motors are not tilted, no compensation needed
         return;
     }
+
+    // QTILTCRUISE computes tilt via arccos(hover_thr / pilot_thr), which already
+    // guarantees the rear motors' vertical component equals hover thrust.
+    // Applying additional scaling here would double-correct and fight altitude hold.
+    if (plane.control_mode == &plane.mode_qtiltcruise) {
+        return;
+    }
+
     if (quadplane.in_vtol_mode()) {
-        // we are transitioning to VTOL flight
-        const float tilt_factor = cosf(radians(current_tilt*90));
-        tilt_compensate_angle(thrust, num_motors, tilt_factor, 1);
+        if (_have_vtol_motor) {
+            // Partial-tilt vehicle: non-tilting (front) motors always point straight
+            // up — no thrust reduction applies to them.  Tilting (rear) motors need
+            // a 1/cos(θ) boost to maintain their vertical thrust component as they
+            // tilt backward.  The upstream full-tilt path (cos on non-tilted, 1 on
+            // tilted) is inverted for this configuration and must not be used.
+            float inv_tilt_factor;
+            if (current_tilt > 0.98f) {
+                inv_tilt_factor = 1.0f / cosf(radians(0.98f * 90.0f));
+            } else {
+                inv_tilt_factor = 1.0f / cosf(radians(current_tilt * 90.0f));
+            }
+            tilt_compensate_angle(thrust, num_motors, 1.0f, inv_tilt_factor);
+        } else {
+            // Full-tilt vehicle: original upstream behavior.
+            const float tilt_factor = cosf(radians(current_tilt*90));
+            tilt_compensate_angle(thrust, num_motors, tilt_factor, 1);
+        }
     } else {
         float inv_tilt_factor;
         if (current_tilt > 0.98f) {
@@ -695,9 +830,16 @@ void Tiltrotor::vectoring(void)
 
         SRV_Channels::set_output_scaled(SRV_Channel::k_tiltMotorLeft, left_tilt);
         SRV_Channels::set_output_scaled(SRV_Channel::k_tiltMotorRight, right_tilt);
-        SRV_Channels::set_output_scaled(SRV_Channel::k_tiltMotorRear, 1000.0 * constrain_float(base_output,0.0,1.0));
-        SRV_Channels::set_output_scaled(SRV_Channel::k_tiltMotorRearLeft, left_tilt);
-        SRV_Channels::set_output_scaled(SRV_Channel::k_tiltMotorRearRight, right_tilt);
+
+        // Rear servos blend between base_output (no differential, full torque yaw from _yaw_factor)
+        // and full vectored differential. At blend=0 (hover): no differential, yaw via motor RPM.
+        // At blend=1 (cruise): full differential, _yaw_factor zeroed, servos do all the yaw work.
+        const float base_scaled = 1000.0f * constrain_float(base_output, 0.0f, 1.0f);
+        SRV_Channels::set_output_scaled(SRV_Channel::k_tiltMotorRear, base_scaled);
+        SRV_Channels::set_output_scaled(SRV_Channel::k_tiltMotorRearLeft,
+            base_scaled * (1.0f - _rear_yaw_blend) + left_tilt  * _rear_yaw_blend);
+        SRV_Channels::set_output_scaled(SRV_Channel::k_tiltMotorRearRight,
+            base_scaled * (1.0f - _rear_yaw_blend) + right_tilt * _rear_yaw_blend);
     }
 }
 

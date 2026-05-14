@@ -86,6 +86,9 @@ public:
     AP_Float fixed_angle;
     AP_Float fixed_gain;
     AP_Float flap_angle_deg;
+    AP_Float yaw_bld_thr;   // Q_TILT_YAW_THR — tilt angle (deg) where torque→vectored yaw blend starts
+    AP_Float yaw_bld_rng;   // Q_TILT_YAW_RNG — tilt range (deg) to complete the blend
+    AP_Float ctrim_deg;     // Q_TILT_CT_PTRIM — nose-up pitch (deg) at full tilt for CT-shift compensation
 
     float current_tilt;
     float current_throttle;
@@ -112,14 +115,20 @@ private:
         float current_tilt;
         float front_left_tilt;
         float front_right_tilt;
+        float rear_yaw_blend;
     };
+
+    float _rear_yaw_blend;  // 0=full torque yaw (hover), 1=full vectored yaw (cruise)
+
+    // update rear motor yaw factors and _rear_yaw_blend based on current_tilt
+    void update_yaw_blend(void);
 
     bool setup_complete;
 
     // true if a fixed forward motor is setup
     bool _have_fw_motor;
 
-    // true if all motors tilt with no fixed VTOL motor
+    // true if at least one enabled motor is NOT in Q_TILT_MASK (a fixed permanent VTOL motor)
     bool _have_vtol_motor;
 
     // true if the current tilt angle is equal to the desired
