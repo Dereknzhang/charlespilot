@@ -78,7 +78,8 @@ void ModeQTiltCruise::update()
     // full attitude control via the stick.
     const bool cruise_inverted = (quadplane.tiltrotor.cruise_inv.get() != 0);
     const float pitch_ctl = plane.channel_pitch->get_control_in();
-    const bool in_cruise_submode = cruise_inverted ? (pitch_ctl < -200.0f) : (pitch_ctl > 200.0f);
+    const float cruise_dz = (float)quadplane.tiltrotor.cruise_dz.get();
+    const bool in_cruise_submode = cruise_inverted ? (pitch_ctl < -cruise_dz) : (pitch_ctl > cruise_dz);
     if (in_cruise_submode) {
         const float trim_cd = quadplane.tiltrotor.ctrim_deg.get()
                               * quadplane.tiltrotor.current_tilt * 100.0f;
@@ -110,7 +111,8 @@ void ModeQTiltCruise::run()
         // rapidly toggling between sub-modes at stick centre.
         const float pitch_in = plane.channel_pitch->get_control_in();
         const bool cruise_inverted = (quadplane.tiltrotor.cruise_inv.get() != 0);
-        const bool in_cruise_submode = cruise_inverted ? (pitch_in < -200.0f) : (pitch_in > 200.0f);
+        const float cruise_dz = (float)quadplane.tiltrotor.cruise_dz.get();
+        const bool in_cruise_submode = cruise_inverted ? (pitch_in < -cruise_dz) : (pitch_in > cruise_dz);
 
         // assign_tilt_to_fwd_thr() zeroes q_fwd_throttle when not in a
         // position-control forward-thrust mode.  Call it here, inside the

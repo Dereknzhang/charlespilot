@@ -113,6 +113,14 @@ const AP_Param::GroupInfo Tiltrotor::var_info[] = {
     // @User: Standard
     AP_GROUPINFO("CSINV", 14, Tiltrotor, cruise_inv, 0),
 
+    // @Param: CSDZ
+    // @DisplayName: QTiltCruise stick dead zone
+    // @Description: Pitch stick deflection (centidegrees) required to engage or exit tilt-cruise sub-mode in QTILTCRUISE. The stick must exceed this threshold in the engage direction (forward by default, back when Q_TILT_CSINV=1) to enter cruise, and drop below it to return to quad sub-mode. Increase to reduce sensitivity to stick trim offset or RC noise. Range 50-1000 cd (1.1%-22% travel).
+    // @Units: cdeg
+    // @Range: 50 1000
+    // @User: Standard
+    AP_GROUPINFO("CSDZ", 15, Tiltrotor, cruise_dz, 200),
+
     AP_GROUPEND
 };
 
@@ -369,7 +377,8 @@ void Tiltrotor::continuous_update(void)
     if (plane.control_mode == &plane.mode_qtiltcruise) {
         const float pitch_in = plane.channel_pitch->get_control_in(); // -4500..+4500
         const bool cruise_inverted = (cruise_inv.get() != 0);
-        const bool in_cruise_submode = cruise_inverted ? (pitch_in < -200.0f) : (pitch_in > 200.0f);
+        const float dz = (float)cruise_dz.get();
+        const bool in_cruise_submode = cruise_inverted ? (pitch_in < -dz) : (pitch_in > dz);
         if (in_cruise_submode) {
             // Pilot-desired throttle sets the forward-speed/tilt target.
             // Z-PID corrections act on actual motor throttle independently.
