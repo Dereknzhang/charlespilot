@@ -377,7 +377,7 @@ void Tiltrotor::continuous_update(void)
     if (plane.control_mode == &plane.mode_qtiltcruise) {
         const float pitch_in = plane.channel_pitch->get_control_in(); // -4500..+4500
         const bool cruise_inverted = (cruise_inv.get() != 0);
-        const float dz = (float)cruise_dz.get();
+        const float dz = MAX((float)cruise_dz.get(), 50.0f);
         const bool in_cruise_submode = cruise_inverted ? (pitch_in < -dz) : (pitch_in > dz);
         if (in_cruise_submode) {
             // Pilot-desired throttle sets the forward-speed/tilt target.

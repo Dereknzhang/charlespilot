@@ -78,7 +78,7 @@ void ModeQTiltCruise::update()
     // full attitude control via the stick.
     const bool cruise_inverted = (quadplane.tiltrotor.cruise_inv.get() != 0);
     const float pitch_ctl = plane.channel_pitch->get_control_in();
-    const float cruise_dz = (float)quadplane.tiltrotor.cruise_dz.get();
+    const float cruise_dz = MAX((float)quadplane.tiltrotor.cruise_dz.get(), 50.0f);
     const bool in_cruise_submode = cruise_inverted ? (pitch_ctl < -cruise_dz) : (pitch_ctl > cruise_dz);
     if (in_cruise_submode) {
         const float trim_cd = quadplane.tiltrotor.ctrim_deg.get()
@@ -107,11 +107,11 @@ void ModeQTiltCruise::run()
         pos_control->D_relax_controller(0);
     } else {
         // Read pitch stick: range is -4500 to +4500 centidegrees of stick travel.
-        // Threshold of 200 cd (~4.4% travel) prevents RC noise / trim offset from
-        // rapidly toggling between sub-modes at stick centre.
+        // Q_TILT_CSDZ (default 200 cd, ~4.4% travel) prevents RC noise / trim
+        // offset from rapidly toggling between sub-modes at stick centre.
         const float pitch_in = plane.channel_pitch->get_control_in();
         const bool cruise_inverted = (quadplane.tiltrotor.cruise_inv.get() != 0);
-        const float cruise_dz = (float)quadplane.tiltrotor.cruise_dz.get();
+        const float cruise_dz = MAX((float)quadplane.tiltrotor.cruise_dz.get(), 50.0f);
         const bool in_cruise_submode = cruise_inverted ? (pitch_in < -cruise_dz) : (pitch_in > cruise_dz);
 
         // assign_tilt_to_fwd_thr() zeroes q_fwd_throttle when not in a
