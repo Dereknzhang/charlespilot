@@ -106,6 +106,13 @@ const AP_Param::GroupInfo Tiltrotor::var_info[] = {
     // @User: Advanced
     AP_GROUPINFO("CT_PTRIM", 13, Tiltrotor, ctrim_deg, 0),
 
+    // @Param: CSINV
+    // @DisplayName: QTiltCruise stick invert
+    // @Description: When 0 (default), pushing the pitch stick forward (positive) engages tilt-cruise sub-mode in QTILTCRUISE. When 1, pulling the pitch stick back (negative) engages tilt-cruise instead. Use this when the natural flying posture calls for a pull-to-cruise input without reversing the RC channel globally.
+    // @Values: 0:ForwardToEngage,1:BackToEngage
+    // @User: Standard
+    AP_GROUPINFO("CSINV", 14, Tiltrotor, cruise_inv, 0),
+
     AP_GROUPEND
 };
 
@@ -343,8 +350,9 @@ void Tiltrotor::continuous_update(void)
     */
 
     // --- QTILTCRUISE: altitude-hold tilt scheduling ---
-    // When the RC pitch stick is forward (>0), compute the tilt angle at which
-    // the vertical component of rotor thrust equals the estimated hover thrust.
+    // When the RC pitch stick engages cruise sub-mode (forward by default, or
+    // backward when Q_TILT_CSINV=1), compute the tilt angle at which the
+    // vertical component of rotor thrust equals the estimated hover thrust.
     // This keeps altitude constant as the pilot varies throttle.
     //   cos(θ) = hover_throttle / pilot_throttle
     //   θ = arccos(hover_throttle / pilot_throttle)
@@ -357,10 +365,12 @@ void Tiltrotor::continuous_update(void)
     // Z-PID correction by tilting further forward, leaving the aircraft unable
     // to recover from downward disturbances.
     //
-    // When pitch stick is at or behind centre, slew back to vertical (θ = 0).
+    // When pitch stick is not in the cruise zone, slew back to vertical (θ = 0).
     if (plane.control_mode == &plane.mode_qtiltcruise) {
         const float pitch_in = plane.channel_pitch->get_control_in(); // -4500..+4500
-        if (pitch_in > 200.0f) {
+        const bool cruise_inverted = (cruise_inv.get() != 0);
+        const bool in_cruise_submode = cruise_inverted ? (pitch_in < -200.0f) : (pitch_in > 200.0f);
+        if (in_cruise_submode) {
             // Pilot-desired throttle sets the forward-speed/tilt target.
             // Z-PID corrections act on actual motor throttle independently.
             const float pilot_thr  = constrain_float(quadplane.get_pilot_throttle(), 0.01f, 1.0f);
@@ -376,7 +386,7 @@ void Tiltrotor::continuous_update(void)
             }
             slew(tilt_frac);
         } else {
-            // Pitch stick at or behind centre — return servos to vertical.
+            // Not in cruise sub-mode — return servos to vertical.
             // slew() applies Q_TILT_RATE_UP so the transition is smooth.
             slew(0.0f);
         }

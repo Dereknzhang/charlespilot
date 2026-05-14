@@ -7,7 +7,7 @@
   QTILTCRUISE flight mode — altitude-hold tilt-cruise for heavy-lift push/pull VTOL.
 
   Control law:
-    RC pitch stick > 0 (forward of centre):
+    Cruise sub-mode engaged (pitch stick forward by default; back when Q_TILT_CSINV=1):
       Altitude is held automatically via the Z-axis controller (zero climb rate
       target). The tilt servos are simultaneously driven to the angle at which
       the vertical thrust component equals the estimated hover thrust, so
@@ -15,7 +15,7 @@
       More throttle → more forward tilt → more forward speed, same altitude.
       Roll, yaw, and throttle all work normally.
 
-    RC pitch stick <= 0 (at or behind centre):
+    Cruise sub-mode not engaged (stick not past the threshold):
       No altitude control. Throttle is passed directly to the motors (identical
       to QSTABILIZE). Tilt servos slew back to vertical at Q_TILT_RATE_UP deg/s.
       The aircraft behaves like a plain quadcopter — pilot has full manual
@@ -47,8 +47,8 @@ bool ModeQTiltCruise::_enter()
     // If no airspeed sensor is fitted, allow entry (rely on pilot to only switch
     // from hover modes). With a sensor, entry is denied above the threshold.
 
-    // Initialise Z-axis controller limits for the altitude-hold (forward-pitch)
-    // sub-mode. These are only active when pitch stick > 0.
+    // Initialise Z-axis controller limits for the altitude-hold (cruise)
+    // sub-mode. These are only active when in cruise sub-mode.
     pos_control->D_set_max_speed_accel_m(
         quadplane.get_pilot_velocity_z_max_dn_m(),
         quadplane.pilot_speed_z_max_up_ms,
@@ -68,16 +68,18 @@ void ModeQTiltCruise::update()
     // nav_pitch_cd from the pitch stick (wrong in cruise sub-mode — see below).
     plane.mode_qstabilize.update();
 
-    // In cruise sub-mode (pitch stick > 200 cd) the stick only gates the sub-mode;
-    // it must not simultaneously command a nose-down attitude. Override nav_pitch_cd
-    // so the aircraft holds level pitch (plus CT-shift trim) while the Z-PID handles
-    // altitude.
+    // In cruise sub-mode the stick only gates entry; it must not simultaneously
+    // command a nose-down attitude. Override nav_pitch_cd so the aircraft holds
+    // level pitch (plus CT-shift trim) while the Z-PID handles altitude.
     // CT-shift trim: as rear motors tilt backward the centre of thrust shifts
     // rearward, producing a nose-down pitch moment.  Q_TILT_CT_PTRIM (deg at full
     // tilt) is applied linearly with current_tilt to trim the nose up.  Default 0.
-    // In quad sub-mode (pitch stick ≤ 200 cd) leave nav_pitch_cd from QSTABILIZE
-    // so the pilot retains full attitude control via the stick.
-    if (plane.channel_pitch->get_control_in() > 200.0f) {
+    // In quad sub-mode leave nav_pitch_cd from QSTABILIZE so the pilot retains
+    // full attitude control via the stick.
+    const bool cruise_inverted = (quadplane.tiltrotor.cruise_inv.get() != 0);
+    const float pitch_ctl = plane.channel_pitch->get_control_in();
+    const bool in_cruise_submode = cruise_inverted ? (pitch_ctl < -200.0f) : (pitch_ctl > 200.0f);
+    if (in_cruise_submode) {
         const float trim_cd = quadplane.tiltrotor.ctrim_deg.get()
                               * quadplane.tiltrotor.current_tilt * 100.0f;
         plane.nav_pitch_cd = (int32_t)trim_cd;
@@ -107,6 +109,8 @@ void ModeQTiltCruise::run()
         // Threshold of 200 cd (~4.4% travel) prevents RC noise / trim offset from
         // rapidly toggling between sub-modes at stick centre.
         const float pitch_in = plane.channel_pitch->get_control_in();
+        const bool cruise_inverted = (quadplane.tiltrotor.cruise_inv.get() != 0);
+        const bool in_cruise_submode = cruise_inverted ? (pitch_in < -200.0f) : (pitch_in > 200.0f);
 
         // assign_tilt_to_fwd_thr() zeroes q_fwd_throttle when not in a
         // position-control forward-thrust mode.  Call it here, inside the
@@ -114,7 +118,7 @@ void ModeQTiltCruise::run()
         // consistent with ModeQHover::run().
         quadplane.assign_tilt_to_fwd_thr();
 
-        if (pitch_in > 200.0f) {
+        if (in_cruise_submode) {
             // -----------------------------------------------------------
             // TILT-CRUISE sub-mode
             // Altitude is held at zero climb rate by the Z-axis PID
@@ -125,7 +129,7 @@ void ModeQTiltCruise::run()
             quadplane.hold_hover(0.0f);
         } else {
             // -----------------------------------------------------------
-            // QUAD sub-mode: pitch stick at or behind centre.
+            // QUAD sub-mode: cruise stick threshold not met.
             // No altitude control — throttle goes straight to motors,
             // exactly like QSTABILIZE. Tiltrotor::continuous_update()
             // slews servos back to vertical independently.

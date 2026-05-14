@@ -89,6 +89,7 @@ public:
     AP_Float yaw_bld_thr;   // Q_TILT_YAW_THR — tilt angle (deg) where torque→vectored yaw blend starts
     AP_Float yaw_bld_rng;   // Q_TILT_YAW_RNG — tilt range (deg) to complete the blend
     AP_Float ctrim_deg;     // Q_TILT_CT_PTRIM — nose-up pitch (deg) at full tilt for CT-shift compensation
+    AP_Int8  cruise_inv;    // Q_TILT_CSINV   — 0: forward stick engages tilt-cruise, 1: back stick engages
 
     float current_tilt;
     float current_throttle;
