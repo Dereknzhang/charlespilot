@@ -22,6 +22,7 @@ public:
             AP_HAL::panic("AP_MotorsMatrix must be singleton");
         }
         _singleton = this;
+        memset(_saved_yaw_factor, 0, sizeof(_saved_yaw_factor));
     };
 
     // get singleton instance
@@ -74,6 +75,15 @@ public:
     // disable the use of motor torque to control yaw. Used when an external mechanism such
     // as vectoring is used for yaw control
     void                disable_yaw_torque(void) override;
+
+    // save all current yaw factors (call after normalise_rpy_factors())
+    void                save_yaw_factors(void);
+
+    // set yaw factor for a single motor at runtime (no initialised_ok guard — runtime call)
+    void                set_yaw_factor(uint8_t motor, float val);
+
+    // retrieve the saved yaw factor for a motor
+    float               get_saved_yaw_factor(uint8_t motor) const;
 
     // add_motor using raw roll, pitch, throttle and yaw factors
     void                add_motor_raw(int8_t motor_num, float roll_fac, float pitch_fac, float yaw_fac, uint8_t testing_order, float throttle_factor = 1.0f);
@@ -141,6 +151,7 @@ protected:
     float               _roll_factor[AP_MOTORS_MAX_NUM_MOTORS]; // each motors contribution to roll
     float               _pitch_factor[AP_MOTORS_MAX_NUM_MOTORS]; // each motors contribution to pitch
     float               _yaw_factor[AP_MOTORS_MAX_NUM_MOTORS];  // each motors contribution to yaw (normally 1 or -1)
+    float               _saved_yaw_factor[AP_MOTORS_MAX_NUM_MOTORS]; // yaw factors saved before dynamic blend scaling
     float               _throttle_factor[AP_MOTORS_MAX_NUM_MOTORS];  // each motors contribution to throttle 0~1
     float               _thrust_rpyt_out[AP_MOTORS_MAX_NUM_MOTORS]; // combined roll, pitch, yaw and throttle outputs to motors in 0~1 range
     uint8_t             _test_order[AP_MOTORS_MAX_NUM_MOTORS];  // order of the motors in the test sequence

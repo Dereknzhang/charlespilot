@@ -1410,6 +1410,37 @@ void AP_MotorsMatrix::disable_yaw_torque(void)
     }
 }
 
+/*
+  save all current yaw factors. Must be called AFTER normalise_rpy_factors() has
+  scaled them, so the saved values reflect the final normalised weights.
+  Called from Tiltrotor::setup() for vectored-yaw vehicles.
+*/
+void AP_MotorsMatrix::save_yaw_factors(void)
+{
+    for (uint8_t i = 0; i < AP_MOTORS_MAX_NUM_MOTORS; i++) {
+        _saved_yaw_factor[i] = _yaw_factor[i];
+    }
+}
+
+/*
+  set the yaw factor for a single motor at runtime.
+  No initialised_ok() guard — this is a runtime call, not a motor-setup call.
+*/
+void AP_MotorsMatrix::set_yaw_factor(uint8_t motor, float val)
+{
+    if (motor < AP_MOTORS_MAX_NUM_MOTORS && motor_enabled[motor]) {
+        _yaw_factor[motor] = val;
+    }
+}
+
+/*
+  return the saved yaw factor for a motor.
+*/
+float AP_MotorsMatrix::get_saved_yaw_factor(uint8_t motor) const
+{
+    return (motor < AP_MOTORS_MAX_NUM_MOTORS) ? _saved_yaw_factor[motor] : 0.0f;
+}
+
 #if APM_BUILD_TYPE(APM_BUILD_UNKNOWN)
 // examples can pull values direct
 float AP_MotorsMatrix::get_thrust_rpyt_out(uint8_t i) const
