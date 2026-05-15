@@ -57,7 +57,17 @@ bool ModeQTiltCruise::_enter()
         quadplane.get_pilot_velocity_z_max_dn_m(),
         quadplane.pilot_speed_z_max_up_ms,
         quadplane.pilot_accel_z_mss);
-    quadplane.set_climb_rate_ms(0);
+    // Relax the Z controller so it is marked inactive.  This prevents
+    // input_vel_accel_D_m from being called on a stale (possibly very large)
+    // _dt before D_init_controller() has run, which would project the
+    // altitude target wildly off the current altitude and produce a throttle
+    // spike the moment cruise sub-mode is first entered.
+    // D_init_controller() will be called automatically on the first
+    // run_z_controller() invocation inside hold_hover().
+    // NOTE: set_climb_rate_ms(0) is intentionally omitted here; hold_hover()
+    // calls it just before run_z_controller(), at which point the controller
+    // is already initialised and _dt is valid.
+    pos_control->D_relax_controller(0);
     quadplane.init_throttle_wait();
     return true;
 }
