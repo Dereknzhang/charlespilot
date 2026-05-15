@@ -121,6 +121,73 @@ const AP_Param::GroupInfo Tiltrotor::var_info[] = {
     // @User: Standard
     AP_GROUPINFO("CSDZ", 15, Tiltrotor, cruise_dz, 200),
 
+    // TC-submode shadow params — override the base param only when QTILTCRUISE cruise
+    // sub-mode is engaged.  Set to -1 (default) to inherit the corresponding base param.
+
+    // @Param: TC_MAX
+    // @DisplayName: QTiltCruise max tilt angle
+    // @Description: Maximum tilt angle (deg) used in QTILTCRUISE cruise sub-mode. -1 inherits Q_TILT_MAX.
+    // @Units: deg
+    // @Range: -1 80
+    // @User: Advanced
+    AP_GROUPINFO("TC_MAX", 16, Tiltrotor, tc_max_angle_deg, -1),
+
+    // @Param: TC_RATEUP
+    // @DisplayName: QTiltCruise tilt-back rate
+    // @Description: Rate (deg/s) at which tilt servos return toward vertical while in QTILTCRUISE cruise sub-mode. -1 inherits Q_TILT_RATE_UP.
+    // @Units: deg/s
+    // @Range: -1 300
+    // @User: Advanced
+    AP_GROUPINFO("TC_RATEUP", 17, Tiltrotor, tc_max_rate_up_dps, -1),
+
+    // @Param: TC_RATEDN
+    // @DisplayName: QTiltCruise tilt-forward rate
+    // @Description: Rate (deg/s) at which tilt servos move forward while in QTILTCRUISE cruise sub-mode. -1 inherits Q_TILT_RATE_DN (or Q_TILT_RATE_UP if that is zero).
+    // @Units: deg/s
+    // @Range: -1 300
+    // @User: Advanced
+    AP_GROUPINFO("TC_RATEDN", 18, Tiltrotor, tc_max_rate_down_dps, -1),
+
+    // @Param: TC_YTHR
+    // @DisplayName: QTiltCruise yaw-blend start angle
+    // @Description: Tilt angle (deg) at which the torque-to-vectored yaw blend begins in QTILTCRUISE cruise sub-mode. -1 inherits Q_TILT_YAW_THR.
+    // @Units: deg
+    // @Range: -1 30
+    // @User: Advanced
+    AP_GROUPINFO("TC_YTHR", 19, Tiltrotor, tc_yaw_bld_thr, -1),
+
+    // @Param: TC_YRNG
+    // @DisplayName: QTiltCruise yaw-blend range
+    // @Description: Tilt angle range (deg) over which yaw authority transitions in QTILTCRUISE cruise sub-mode. -1 inherits Q_TILT_YAW_RNG.
+    // @Units: deg
+    // @Range: -1 30
+    // @User: Advanced
+    AP_GROUPINFO("TC_YRNG", 20, Tiltrotor, tc_yaw_bld_rng, -1),
+
+    // @Param: TC_SPDUP
+    // @DisplayName: QTiltCruise Z-ctrl climb rate
+    // @Description: Maximum pilot-commanded climb rate (m/s) for the Z-axis controller in QTILTCRUISE cruise sub-mode. -1 inherits Q_PILOT_SPD_UP.
+    // @Units: m/s
+    // @Range: -1 10
+    // @User: Advanced
+    AP_GROUPINFO("TC_SPDUP", 21, Tiltrotor, tc_pilot_spd_up_ms, -1),
+
+    // @Param: TC_SPDDN
+    // @DisplayName: QTiltCruise Z-ctrl descent rate
+    // @Description: Maximum pilot-commanded descent rate (m/s) for the Z-axis controller in QTILTCRUISE cruise sub-mode. -1 inherits Q_PILOT_SPD_DN (or Q_PILOT_SPD_UP if that is zero).
+    // @Units: m/s
+    // @Range: -1 10
+    // @User: Advanced
+    AP_GROUPINFO("TC_SPDDN", 22, Tiltrotor, tc_pilot_spd_dn_ms, -1),
+
+    // @Param: TC_ACCZ
+    // @DisplayName: QTiltCruise Z-ctrl acceleration
+    // @Description: Maximum vertical acceleration (m/s²) for the Z-axis controller in QTILTCRUISE cruise sub-mode. -1 inherits Q_PILOT_ACCEL_Z.
+    // @Units: m/s/s
+    // @Range: -1 20
+    // @User: Advanced
+    AP_GROUPINFO("TC_ACCZ", 23, Tiltrotor, tc_pilot_accel_mss, -1),
+
     AP_GROUPEND
 };
 
@@ -129,7 +196,7 @@ const AP_Param::GroupInfo Tiltrotor::var_info[] = {
   Q_TILT_MASK to a non-zero value
  */
 
-Tiltrotor::Tiltrotor(QuadPlane& _quadplane, AP_MotorsMulticopter*& _motors):_rear_yaw_blend(0.0f),quadplane(_quadplane),motors(_motors)
+Tiltrotor::Tiltrotor(QuadPlane& _quadplane, AP_MotorsMulticopter*& _motors):_rear_yaw_blend(0.0f),_in_tc_cruise(false),quadplane(_quadplane),motors(_motors)
 {
     AP_Param::setup_object_defaults(this, var_info);
 }
@@ -228,29 +295,76 @@ void Tiltrotor::setup()
     setup_complete = true;
 }
 
+// ---------------------------------------------------------------------------
+// TC-submode Z-controller limit getters
+// Each returns the TC-specific param if set (≥ 0), otherwise the quad param.
+// ---------------------------------------------------------------------------
+
+float Tiltrotor::get_tc_pilot_spd_up_ms() const
+{
+    if (tc_pilot_spd_up_ms.get() >= 0.0f) {
+        return tc_pilot_spd_up_ms.get();
+    }
+    return (float)quadplane.pilot_speed_z_max_up_ms;
+}
+
+float Tiltrotor::get_tc_pilot_spd_dn_ms() const
+{
+    if (tc_pilot_spd_dn_ms.get() >= 0.0f) {
+        return tc_pilot_spd_dn_ms.get();
+    }
+    return (float)quadplane.get_pilot_velocity_z_max_dn_m();
+}
+
+float Tiltrotor::get_tc_pilot_accel_mss() const
+{
+    if (tc_pilot_accel_mss.get() >= 0.0f) {
+        return tc_pilot_accel_mss.get();
+    }
+    return (float)quadplane.pilot_accel_z_mss;
+}
+
 /*
   calculate maximum tilt change as a proportion from 0 to 1 of tilt
  */
 float Tiltrotor::tilt_max_change(bool up, bool in_flap_range) const
 {
     float rate;
-    if (up || max_rate_down_dps <= 0) {
-        rate = max_rate_up_dps;
+    if (_in_tc_cruise) {
+        // TC submode: use TC-specific rates when configured (> 0), else inherit base param.
+        if (up) {
+            rate = (tc_max_rate_up_dps.get() > 0)
+                   ? (float)tc_max_rate_up_dps.get()
+                   : (float)max_rate_up_dps;
+        } else {
+            if (tc_max_rate_down_dps.get() > 0) {
+                rate = (float)tc_max_rate_down_dps.get();
+            } else if (max_rate_down_dps > 0) {
+                rate = (float)max_rate_down_dps;
+            } else {
+                rate = (float)max_rate_up_dps;
+            }
+        }
+        // fast_tilt override is intentionally skipped in TC sub-mode.
     } else {
-        rate = max_rate_down_dps;
-    }
-    if (type != TILT_TYPE_BINARY && !up && !in_flap_range) {
-        bool fast_tilt = false;
-        if (plane.control_mode == &plane.mode_manual) {
-            fast_tilt = true;
+        if (up || max_rate_down_dps <= 0) {
+            rate = max_rate_up_dps;
+        } else {
+            rate = max_rate_down_dps;
         }
-        if (plane.arming.is_armed_and_safety_off() && !quadplane.in_vtol_mode() && !quadplane.assisted_flight) {
-            fast_tilt = true;
-        }
-        if (fast_tilt) {
-            // allow a minimum of 90 DPS in manual or if we are not
-            // stabilising, to give fast control
-            rate = MAX(rate, 90);
+        if (type != TILT_TYPE_BINARY && !up && !in_flap_range) {
+            bool fast_tilt = false;
+            if (plane.control_mode == &plane.mode_manual) {
+                fast_tilt = true;
+            }
+            if (plane.arming.is_armed_and_safety_off() && !quadplane.in_vtol_mode() && !quadplane.assisted_flight) {
+                fast_tilt = true;
+            }
+            if (fast_tilt) {
+                // allow a minimum of 90 DPS in manual or if we are not
+                // stabilising, to give fast control
+                rate = MAX(rate, 90);
+            }
         }
     }
     return rate * plane.G_Dt * (1/90.0);
@@ -379,6 +493,8 @@ void Tiltrotor::continuous_update(void)
         const bool cruise_inverted = (cruise_inv.get() != 0);
         const float dz = MAX((float)cruise_dz.get(), 50.0f);
         const bool in_cruise_submode = cruise_inverted ? (pitch_in < -dz) : (pitch_in > dz);
+        // Gate TC-param overrides in tilt_max_change() and update_yaw_blend().
+        _in_tc_cruise = in_cruise_submode;
         if (in_cruise_submode) {
             // Pilot-desired throttle sets the forward-speed/tilt target.
             // Z-PID corrections act on actual motor throttle independently.
@@ -390,28 +506,25 @@ void Tiltrotor::continuous_update(void)
                 // constrain_float guards the domain [-1, 1] defensively; the
                 // pilot_thr > hover_thr check already ensures ratio < 1.0.
                 tilt_frac = degrees(acosf(constrain_float(hover_thr / pilot_thr, -1.0f, 1.0f))) / 90.0f;
-                // Respect the configured maximum tilt angle (Q_TILT_MAX), but
-                // reserve tilt_yaw_angle degrees of servo travel on each side
-                // for yaw corrections.  At base_tilt = (max_angle_deg -
-                // tilt_yaw_angle), one motor can extend to Q_TILT_MAX while
-                // the other retracts by the same amount — full differential
-                // authority preserved at all times without either servo hitting
-                // its end-stop and without triggering tilt_over_max_angle().
-                // When Q_TILT_YAW_ANGLE=0 tc_max_frac == max_angle_deg/90
-                // (no change for non-vectored vehicles).
-                // Floor at 5° guards against tilt_yaw_angle >= max_angle_deg.
-                const float tc_max_frac = MAX(max_angle_deg - tilt_yaw_angle.get(), 5.0f) / 90.0f;
+                // Use TC-specific max angle if configured, else fall back to Q_TILT_MAX.
+                // Reserve tilt_yaw_angle degrees of servo headroom for yaw corrections.
+                // Floor at 5° guards against tilt_yaw_angle >= effective max.
+                const float eff_max = (tc_max_angle_deg.get() > 0)
+                                      ? (float)tc_max_angle_deg.get()
+                                      : (float)max_angle_deg;
+                const float tc_max_frac = MAX(eff_max - tilt_yaw_angle.get(), 5.0f) / 90.0f;
                 tilt_frac = constrain_float(tilt_frac, 0.0f, tc_max_frac);
             }
             slew(tilt_frac);
         } else {
             // Not in cruise sub-mode — return servos to vertical.
-            // slew() applies Q_TILT_RATE_UP so the transition is smooth.
+            // slew() applies the effective up-rate (TC or base) so the transition is smooth.
             slew(0.0f);
         }
         return;
     }
     // --- end QTILTCRUISE ---
+    _in_tc_cruise = false;
 
 #if QAUTOTUNE_ENABLED
     if (plane.control_mode == &plane.mode_qautotune) {
@@ -523,8 +636,13 @@ void Tiltrotor::update_yaw_blend(void)
         // No per-cycle blend work needed — all yaw authority is already vectored.
         return;
     }
-    const float thr_frac = yaw_bld_thr.get() / 90.0f;
-    const float rng_frac = MAX(yaw_bld_rng.get(), 1.0f) / 90.0f;
+    // In TC submode use TC-specific yaw blend params if configured (≥ 0), else base params.
+    const float thr = (_in_tc_cruise && tc_yaw_bld_thr.get() >= 0.0f)
+                      ? tc_yaw_bld_thr.get() : yaw_bld_thr.get();
+    const float rng = (_in_tc_cruise && tc_yaw_bld_rng.get() >= 0.0f)
+                      ? tc_yaw_bld_rng.get() : yaw_bld_rng.get();
+    const float thr_frac = thr / 90.0f;
+    const float rng_frac = MAX(rng, 1.0f) / 90.0f;
     _rear_yaw_blend = constrain_float((current_tilt - thr_frac) / rng_frac, 0.0f, 1.0f);
 
     for (uint8_t i = 0; i < AP_MOTORS_MAX_NUM_MOTORS; i++) {

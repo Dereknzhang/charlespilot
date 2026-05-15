@@ -92,6 +92,22 @@ public:
     AP_Int8  cruise_inv;    // Q_TILT_CSINV   — 0: forward stick engages tilt-cruise, 1: back stick engages
     AP_Int16 cruise_dz;     // Q_TILT_CSDZ    — stick dead zone (cd) for cruise sub-mode entry, default 200
 
+    // TC-submode shadow params — active only when QTILTCRUISE cruise sub-mode is engaged.
+    // Sentinel -1 means "inherit from the corresponding base param".
+    AP_Int8  tc_max_angle_deg;     // Q_TILT_TC_MAX    — max tilt angle (deg) in TC; -1→max_angle_deg
+    AP_Int16 tc_max_rate_up_dps;   // Q_TILT_TC_RATEUP — tilt-back rate (deg/s) in TC; -1→max_rate_up_dps
+    AP_Int16 tc_max_rate_down_dps; // Q_TILT_TC_RATEDN — tilt-forward rate (deg/s) in TC; -1→max_rate_down_dps
+    AP_Float tc_yaw_bld_thr;       // Q_TILT_TC_YTHR   — yaw-blend start angle (deg) in TC; -1→yaw_bld_thr
+    AP_Float tc_yaw_bld_rng;       // Q_TILT_TC_YRNG   — yaw-blend range (deg) in TC; -1→yaw_bld_rng
+    AP_Float tc_pilot_spd_up_ms;   // Q_TILT_TC_SPDUP  — Z-ctrl climb rate (m/s) in TC; -1→Q_PILOT_SPD_UP
+    AP_Float tc_pilot_spd_dn_ms;   // Q_TILT_TC_SPDDN  — Z-ctrl descent rate (m/s) in TC; -1→Q_PILOT_SPD_DN
+    AP_Float tc_pilot_accel_mss;   // Q_TILT_TC_ACCZ   — Z-ctrl accel (m/s²) in TC; -1→Q_PILOT_ACCEL_Z
+
+    // Effective TC Z-controller limit getters (inherit from quad params when sentinel -1)
+    float get_tc_pilot_spd_up_ms() const;
+    float get_tc_pilot_spd_dn_ms() const;
+    float get_tc_pilot_accel_mss() const;
+
     float current_tilt;
     float current_throttle;
     bool _motors_active;
@@ -121,6 +137,9 @@ private:
     };
 
     float _rear_yaw_blend;  // 0=full torque yaw (hover), 1=full vectored yaw (cruise)
+
+    // true when QTILTCRUISE cruise sub-mode is active; gates TC-param overrides
+    bool _in_tc_cruise;
 
     // update rear motor yaw factors and _rear_yaw_blend based on current_tilt
     void update_yaw_blend(void);

@@ -47,16 +47,14 @@ bool ModeQTiltCruise::_enter()
     // If no airspeed sensor is fitted, allow entry (rely on pilot to only switch
     // from hover modes). With a sensor, entry is denied above the threshold.
 
-    // Initialise Z-axis controller limits for the altitude-hold (cruise)
-    // sub-mode. These are only active when in cruise sub-mode.
-    pos_control->D_set_max_speed_accel_m(
-        quadplane.get_pilot_velocity_z_max_dn_m(),
-        quadplane.pilot_speed_z_max_up_ms,
-        quadplane.pilot_accel_z_mss);
-    pos_control->D_set_correction_speed_accel_m(
-        quadplane.get_pilot_velocity_z_max_dn_m(),
-        quadplane.pilot_speed_z_max_up_ms,
-        quadplane.pilot_accel_z_mss);
+    // Initialise Z-axis controller limits for the altitude-hold (cruise) sub-mode.
+    // Use TC-specific params when configured (Q_TILT_TC_SPDUP / _SPDDN / _ACCZ),
+    // falling back to the quad params when they are left at their default of -1.
+    const float tc_spd_up  = quadplane.tiltrotor.get_tc_pilot_spd_up_ms();
+    const float tc_spd_dn  = quadplane.tiltrotor.get_tc_pilot_spd_dn_ms();
+    const float tc_accel   = quadplane.tiltrotor.get_tc_pilot_accel_mss();
+    pos_control->D_set_max_speed_accel_m(tc_spd_dn, tc_spd_up, tc_accel);
+    pos_control->D_set_correction_speed_accel_m(tc_spd_dn, tc_spd_up, tc_accel);
     // Relax the Z controller so it is marked inactive.  This prevents
     // input_vel_accel_D_m from being called on a stale (possibly very large)
     // _dt before D_init_controller() has run, which would project the
