@@ -51,7 +51,7 @@ bool ModeQTiltCruise::_enter()
     // TC sub-mode or leaving the mode entirely.  Done here (before any TC swap)
     // so we always capture the true unmodified base values.
     {
-        const AC_PID& ryaw = attitude_control->get_rate_yaw_pid();
+        AC_PID& ryaw = attitude_control->get_rate_yaw_pid();
         _saved_yaw_p      = ryaw.kP().get();
         _saved_yaw_i      = ryaw.kI().get();
         _saved_yaw_d      = ryaw.kD().get();
