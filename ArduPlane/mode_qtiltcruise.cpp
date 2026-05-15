@@ -138,6 +138,16 @@ void ModeQTiltCruise::run()
             // throttle) runs in Tiltrotor::continuous_update(). Z-PID
             // corrections act on actual motor throttle independently.
             // -----------------------------------------------------------
+            // Prevent heading-error accumulation while vectored-yaw authority
+            // is limited at high tilt angles.  When the pilot is not actively
+            // commanding yaw (rudder near centre), snap the attitude target's
+            // yaw to the current heading so angle-P never builds a stale
+            // heading error that would overwhelm the available servo headroom.
+            // reset_yaw_target_and_rate(false) is a pure z-axis quaternion
+            // rotation — it does not touch roll/pitch targets or I terms.
+            if (fabsf(plane.channel_rudder->get_control_in()) < cruise_dz) {
+                attitude_control->reset_yaw_target_and_rate(false);
+            }
             quadplane.hold_hover(0.0f);
         } else {
             // -----------------------------------------------------------
