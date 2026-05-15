@@ -390,8 +390,18 @@ void Tiltrotor::continuous_update(void)
                 // constrain_float guards the domain [-1, 1] defensively; the
                 // pilot_thr > hover_thr check already ensures ratio < 1.0.
                 tilt_frac = degrees(acosf(constrain_float(hover_thr / pilot_thr, -1.0f, 1.0f))) / 90.0f;
-                // Respect the configured maximum tilt angle (Q_TILT_MAX)
-                tilt_frac = constrain_float(tilt_frac, 0.0f, max_angle_deg / 90.0f);
+                // Respect the configured maximum tilt angle (Q_TILT_MAX), but
+                // reserve tilt_yaw_angle degrees of servo travel on each side
+                // for yaw corrections.  At base_tilt = (max_angle_deg -
+                // tilt_yaw_angle), one motor can extend to Q_TILT_MAX while
+                // the other retracts by the same amount — full differential
+                // authority preserved at all times without either servo hitting
+                // its end-stop and without triggering tilt_over_max_angle().
+                // When Q_TILT_YAW_ANGLE=0 tc_max_frac == max_angle_deg/90
+                // (no change for non-vectored vehicles).
+                // Floor at 5° guards against tilt_yaw_angle >= max_angle_deg.
+                const float tc_max_frac = MAX(max_angle_deg - tilt_yaw_angle.get(), 5.0f) / 90.0f;
+                tilt_frac = constrain_float(tilt_frac, 0.0f, tc_max_frac);
             }
             slew(tilt_frac);
         } else {
