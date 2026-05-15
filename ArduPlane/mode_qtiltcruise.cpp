@@ -47,6 +47,19 @@ bool ModeQTiltCruise::_enter()
     // If no airspeed sensor is fitted, allow entry (rely on pilot to only switch
     // from hover modes). With a sensor, entry is denied above the threshold.
 
+    // Snapshot current yaw PID coefficients so they can be restored when exiting
+    // TC sub-mode or leaving the mode entirely.  Done here (before any TC swap)
+    // so we always capture the true unmodified base values.
+    {
+        const AC_PID& ryaw = attitude_control->get_rate_yaw_pid();
+        _saved_yaw_p      = ryaw.kP().get();
+        _saved_yaw_i      = ryaw.kI().get();
+        _saved_yaw_d      = ryaw.kD().get();
+        _saved_yaw_ff     = ryaw.ff().get();
+        _saved_ang_yaw_p  = attitude_control->get_angle_yaw_p().kP().get();
+    }
+    _prev_in_tc_cruise = false;
+
     // Initialise Z-axis controller limits for the altitude-hold (cruise) sub-mode.
     // Use TC-specific params when configured (Q_TILT_TC_SPDUP / _SPDDN / _ACCZ),
     // falling back to the quad params when they are left at their default of -1.
@@ -128,6 +141,15 @@ void ModeQTiltCruise::run()
         // consistent with ModeQHover::run().
         quadplane.assign_tilt_to_fwd_thr();
 
+        // Detect submode transition and swap yaw PIDs on the boundary only.
+        // steady-state cost: one bool compare per cycle.
+        if (in_cruise_submode && !_prev_in_tc_cruise) {
+            _apply_tc_yaw_pids();
+        } else if (!in_cruise_submode && _prev_in_tc_cruise) {
+            _restore_yaw_pids();
+        }
+        _prev_in_tc_cruise = in_cruise_submode;
+
         if (in_cruise_submode) {
             // -----------------------------------------------------------
             // TILT-CRUISE sub-mode
@@ -175,6 +197,51 @@ void ModeQTiltCruise::run()
 
     // Spin-recovery assist if applicable
     quadplane.assist.output_spin_recovery();
+}
+
+void ModeQTiltCruise::_exit()
+{
+    // Restore base yaw PIDs if we left the mode while TC sub-mode was active.
+    // Guards other VTOL modes from inheriting TC-tuned gains.
+    if (_prev_in_tc_cruise) {
+        _restore_yaw_pids();
+        _prev_in_tc_cruise = false;
+    }
+}
+
+// Apply TC-specific yaw PID overrides.
+// Only terms whose TC shadow param is ≥ 0 are changed; the rest stay at
+// their saved base values (already live in the controller).
+// The yaw rate I-term is reset to prevent integrator artefacts from the
+// previous (hover) sub-mode feeding into cruise yaw authority.
+void ModeQTiltCruise::_apply_tc_yaw_pids()
+{
+    const auto& tp = quadplane.tiltrotor;
+    AC_PID& ryaw = attitude_control->get_rate_yaw_pid();
+    if (tp.tc_yaw_rate_p.get()  >= 0.0f) { ryaw.set_kP(tp.tc_yaw_rate_p.get()); }
+    if (tp.tc_yaw_rate_i.get()  >= 0.0f) { ryaw.set_kI(tp.tc_yaw_rate_i.get()); }
+    if (tp.tc_yaw_rate_d.get()  >= 0.0f) { ryaw.set_kD(tp.tc_yaw_rate_d.get()); }
+    if (tp.tc_yaw_rate_ff.get() >= 0.0f) { ryaw.set_ff(tp.tc_yaw_rate_ff.get()); }
+    if (tp.tc_ang_yaw_p.get()   >= 0.0f) {
+        attitude_control->get_angle_yaw_p().set_kP(tp.tc_ang_yaw_p.get());
+    }
+    ryaw.reset_I();
+}
+
+// Restore base yaw PID values saved at mode entry.
+// All five terms are unconditionally restored so the controller is guaranteed
+// to match its pre-TC state regardless of which TC params were set.
+// The yaw rate I-term is reset to prevent TC integrator state from carrying
+// into the next (hover) sub-mode.
+void ModeQTiltCruise::_restore_yaw_pids()
+{
+    AC_PID& ryaw = attitude_control->get_rate_yaw_pid();
+    ryaw.set_kP(_saved_yaw_p);
+    ryaw.set_kI(_saved_yaw_i);
+    ryaw.set_kD(_saved_yaw_d);
+    ryaw.set_ff(_saved_yaw_ff);
+    attitude_control->get_angle_yaw_p().set_kP(_saved_ang_yaw_p);
+    ryaw.reset_I();
 }
 
 #endif  // HAL_QUADPLANE_ENABLED

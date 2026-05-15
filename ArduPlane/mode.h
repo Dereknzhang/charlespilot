@@ -956,6 +956,26 @@ public:
 protected:
 
     bool _enter() override;
+    void _exit() override;
+
+private:
+
+    // Tracks previous submode to detect TC ↔ quad transitions in run().
+    bool _prev_in_tc_cruise;
+
+    // Base yaw PID values captured at mode entry.
+    // Restored when exiting TC sub-mode or leaving the mode entirely,
+    // so other VTOL modes always see unmodified gains.
+    float _saved_yaw_p;
+    float _saved_yaw_i;
+    float _saved_yaw_d;
+    float _saved_yaw_ff;
+    float _saved_ang_yaw_p;
+
+    // Apply TC yaw PID overrides (called on quad→TC transition).
+    void _apply_tc_yaw_pids();
+    // Restore saved base yaw PIDs (called on TC→quad transition and in _exit()).
+    void _restore_yaw_pids();
 };
 
 #endif  // HAL_QUADPLANE_ENABLED

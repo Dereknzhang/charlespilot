@@ -102,6 +102,11 @@ public:
     AP_Float tc_pilot_spd_up_ms;   // Q_TILT_TC_SPDUP  — Z-ctrl climb rate (m/s) in TC; -1→Q_PILOT_SPD_UP
     AP_Float tc_pilot_spd_dn_ms;   // Q_TILT_TC_SPDDN  — Z-ctrl descent rate (m/s) in TC; -1→Q_PILOT_SPD_DN
     AP_Float tc_pilot_accel_mss;   // Q_TILT_TC_ACCZ   — Z-ctrl accel (m/s²) in TC; -1→Q_PILOT_ACCEL_Z
+    AP_Float tc_yaw_rate_p;        // Q_TILT_TC_YAWP   — Q_A_RAT_YAW_P override in TC; -1→inherit
+    AP_Float tc_yaw_rate_i;        // Q_TILT_TC_YAWI   — Q_A_RAT_YAW_I override in TC; -1→inherit
+    AP_Float tc_yaw_rate_d;        // Q_TILT_TC_YAWD   — Q_A_RAT_YAW_D override in TC; -1→inherit
+    AP_Float tc_yaw_rate_ff;       // Q_TILT_TC_YAWFF  — Q_A_RAT_YAW_FF override in TC; -1→inherit
+    AP_Float tc_ang_yaw_p;         // Q_TILT_TC_YAWAP  — Q_A_ANG_YAW_P override in TC; -1→inherit
 
     // Effective TC Z-controller limit getters (inherit from quad params when sentinel -1)
     float get_tc_pilot_spd_up_ms() const;

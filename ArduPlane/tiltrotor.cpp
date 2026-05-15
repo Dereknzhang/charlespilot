@@ -188,6 +188,41 @@ const AP_Param::GroupInfo Tiltrotor::var_info[] = {
     // @User: Advanced
     AP_GROUPINFO("TC_ACCZ", 23, Tiltrotor, tc_pilot_accel_mss, -1),
 
+    // @Param: TC_YAWP
+    // @DisplayName: QTiltCruise yaw rate P
+    // @Description: Overrides Q_A_RAT_YAW_P in QTILTCRUISE cruise sub-mode. -1 inherits Q_A_RAT_YAW_P.
+    // @Range: -1 0.5
+    // @User: Advanced
+    AP_GROUPINFO("TC_YAWP", 24, Tiltrotor, tc_yaw_rate_p, -1),
+
+    // @Param: TC_YAWI
+    // @DisplayName: QTiltCruise yaw rate I
+    // @Description: Overrides Q_A_RAT_YAW_I in QTILTCRUISE cruise sub-mode. -1 inherits Q_A_RAT_YAW_I.
+    // @Range: -1 0.5
+    // @User: Advanced
+    AP_GROUPINFO("TC_YAWI", 25, Tiltrotor, tc_yaw_rate_i, -1),
+
+    // @Param: TC_YAWD
+    // @DisplayName: QTiltCruise yaw rate D
+    // @Description: Overrides Q_A_RAT_YAW_D in QTILTCRUISE cruise sub-mode. -1 inherits Q_A_RAT_YAW_D.
+    // @Range: -1 0.02
+    // @User: Advanced
+    AP_GROUPINFO("TC_YAWD", 26, Tiltrotor, tc_yaw_rate_d, -1),
+
+    // @Param: TC_YAWFF
+    // @DisplayName: QTiltCruise yaw rate FF
+    // @Description: Overrides Q_A_RAT_YAW_FF in QTILTCRUISE cruise sub-mode. -1 inherits Q_A_RAT_YAW_FF.
+    // @Range: -1 1.0
+    // @User: Advanced
+    AP_GROUPINFO("TC_YAWFF", 27, Tiltrotor, tc_yaw_rate_ff, -1),
+
+    // @Param: TC_YAWAP
+    // @DisplayName: QTiltCruise yaw angle P
+    // @Description: Overrides Q_A_ANG_YAW_P in QTILTCRUISE cruise sub-mode. -1 inherits Q_A_ANG_YAW_P.
+    // @Range: -1 30
+    // @User: Advanced
+    AP_GROUPINFO("TC_YAWAP", 28, Tiltrotor, tc_ang_yaw_p, -1),
+
     AP_GROUPEND
 };
 
