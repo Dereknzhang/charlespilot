@@ -366,7 +366,9 @@ float Tiltrotor::tilt_max_change(bool up, bool in_flap_range) const
 {
     float rate;
     if (_in_tc_cruise) {
-        // TC submode: use TC-specific rates when configured (> 0), else inherit base param.
+        // TC submode: use TC-specific rates when > 0, else inherit base param.
+        // Note: check is > 0 (not >= 0) because a zero rate would freeze the
+        // servo — treat 0 as "not configured" same as -1.
         if (up) {
             rate = (tc_max_rate_up_dps.get() > 0)
                    ? (float)tc_max_rate_up_dps.get()
@@ -552,8 +554,9 @@ void Tiltrotor::continuous_update(void)
             }
             slew(tilt_frac);
         } else {
-            // Not in cruise sub-mode — return servos to vertical.
-            // slew() applies the effective up-rate (TC or base) so the transition is smooth.
+            // Not in cruise sub-mode — return servos to vertical at the base rate
+            // (Q_TILT_RATE_UP).  _in_tc_cruise is false here so tilt_max_change()
+            // uses the base param regardless of any TC_RATEUP setting.
             slew(0.0f);
         }
         return;
