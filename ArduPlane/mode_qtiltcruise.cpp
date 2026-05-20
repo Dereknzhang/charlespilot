@@ -68,17 +68,10 @@ bool ModeQTiltCruise::_enter()
     const float tc_accel   = quadplane.tiltrotor.get_tc_pilot_accel_mss();
     pos_control->D_set_max_speed_accel_m(tc_spd_dn, tc_spd_up, tc_accel);
     pos_control->D_set_correction_speed_accel_m(tc_spd_dn, tc_spd_up, tc_accel);
-    // Relax the Z controller so it is marked inactive.  This prevents
-    // input_vel_accel_D_m from being called on a stale (possibly very large)
-    // _dt before D_init_controller() has run, which would project the
-    // altitude target wildly off the current altitude and produce a throttle
-    // spike the moment cruise sub-mode is first entered.
-    // D_init_controller() will be called automatically on the first
-    // run_z_controller() invocation inside hold_hover().
-    // NOTE: set_climb_rate_ms(0) is intentionally omitted here; hold_hover()
-    // calls it just before run_z_controller(), at which point the controller
-    // is already initialised and _dt is valid.
-    pos_control->D_relax_controller(0);
+    // Relax the Z controller so it is marked inactive.  The first TC
+    // sub-mode engagement calls init_z_for_altitude_hold() which re-inits
+    // with _vel_desired=0 for a spike-free bumpless transfer.
+    pos_control->D_relax_controller(quadplane.motors->get_throttle_hover());
     quadplane.init_throttle_wait();
     return true;
 }
@@ -144,6 +137,7 @@ void ModeQTiltCruise::run()
         // Detect submode transition and swap yaw PIDs on the boundary only.
         // steady-state cost: one bool compare per cycle.
         if (in_cruise_submode && !_prev_in_tc_cruise) {
+            quadplane.init_z_for_altitude_hold();
             _apply_tc_yaw_pids();
         } else if (!in_cruise_submode && _prev_in_tc_cruise) {
             _restore_yaw_pids();
@@ -182,7 +176,7 @@ void ModeQTiltCruise::run()
             // resume hold_hover() with accumulated position error and
             // produce a sudden throttle spike.
             // -----------------------------------------------------------
-            pos_control->D_relax_controller(0);
+            pos_control->D_relax_controller(quadplane.motors->get_throttle_hover());
             quadplane.hold_stabilize(quadplane.get_pilot_throttle());
         }
     }

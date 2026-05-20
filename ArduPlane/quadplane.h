@@ -266,6 +266,9 @@ private:
     // initialise throttle_wait when entering mode
     void init_throttle_wait();
 
+    // bumpless Z-controller init for TC sub-mode entry (see quadplane.cpp)
+    void init_z_for_altitude_hold();
+
     // use multicopter rate controller
     void multicopter_attitude_rate_update(float yaw_rate_cds);
 

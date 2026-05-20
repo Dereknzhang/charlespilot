@@ -1113,6 +1113,19 @@ void QuadPlane::hold_hover(float target_climb_rate_cms)
     run_z_controller();
 }
 
+// Bumpless TC sub-mode entry: D_init_controller() pre-charges the accel PID
+// I-term from the current motor output so there is no thrust step.  Zeroing
+// _vel_desired immediately after prevents shape_vel_accel() from computing
+// _accel_desired = +accel_max on cycle 2 (the spike).  Stamping
+// last_pidz_active_ms stops run_z_controller() from re-calling
+// D_init_controller() on cycle 1 and restoring the non-zero velocity.
+void QuadPlane::init_z_for_altitude_hold()
+{
+    pos_control->D_init_controller();
+    pos_control->set_vel_desired_D_ms(0.0f);
+    last_pidz_active_ms = AP_HAL::millis();
+}
+
 float QuadPlane::get_pilot_throttle()
 {
     // get scaled throttle input
