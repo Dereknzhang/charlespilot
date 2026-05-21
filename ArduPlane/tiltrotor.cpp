@@ -513,8 +513,13 @@ void Tiltrotor::continuous_update(void)
     // backward when Q_TILT_CSINV=1), compute the tilt angle at which the
     // vertical component of rotor thrust equals the estimated hover thrust.
     // This keeps altitude constant as the pilot varies throttle.
-    //   cos(θ) = hover_throttle / pilot_throttle
-    //   θ = arccos(hover_throttle / pilot_throttle)
+    //
+    // For vehicles where only some motors tilt (e.g. rear-only), fixed motors
+    // always contribute vertical thrust so the effective balance is:
+    //   fixed_frac * T + rear_frac * T * cos(θ) = hover_thr
+    //   cos(θ) = (hover_thr - fixed_frac * pilot_thr) / (rear_frac * pilot_thr)
+    // When all motors tilt (rear_frac = 1, fixed_frac = 0) this reduces to
+    // the original cos(θ) = hover_thr / pilot_thr.
     //
     // IMPORTANT: tilt is computed from the PILOT'S desired throttle, not from
     // motors->get_throttle() (which includes Z-PID corrections). This decouples
@@ -539,10 +544,18 @@ void Tiltrotor::continuous_update(void)
             const float hover_thr  = constrain_float(motors->get_throttle_hover(), 0.10f, 0.90f);
             float tilt_frac = 0.0f;
             if (pilot_thr > hover_thr) {
-                // arccos returns radians; convert to a 0..1 fraction of 90 deg.
-                // constrain_float guards the domain [-1, 1] defensively; the
-                // pilot_thr > hover_thr check already ensures ratio < 1.0.
-                tilt_frac = degrees(acosf(constrain_float(hover_thr / pilot_thr, -1.0f, 1.0f))) / 90.0f;
+                // Corrected tilt formula for partial-tilt vehicles where only
+                // some motors tilt and the rest are fixed vertical.
+                // Force balance: fixed_frac*T + rear_frac*T*cos(θ) = hover_thr
+                // Solved for cos(θ) at T = pilot_thr (the designed equilibrium).
+                // Falls back to arccos(hover_thr/pilot_thr) when all motors tilt.
+                const uint8_t num_tilt  = (uint8_t)__builtin_popcount((uint32_t)tilt_mask.get());
+                const uint8_t num_total = (uint8_t)__builtin_popcount(motors->get_motor_mask());
+                const float rear_frac   = (num_total > 0) ? ((float)num_tilt / (float)num_total) : 1.0f;
+                const float fixed_frac  = 1.0f - rear_frac;
+                const float cos_theta   = (hover_thr - fixed_frac * pilot_thr) /
+                                           MAX(rear_frac * pilot_thr, 0.001f);
+                tilt_frac = degrees(acosf(constrain_float(cos_theta, -1.0f, 1.0f))) / 90.0f;
                 // Use TC-specific max angle if configured, else fall back to Q_TILT_MAX.
                 // Reserve tilt_yaw_angle degrees of servo headroom for yaw corrections.
                 // Floor at 5° guards against tilt_yaw_angle >= effective max.
