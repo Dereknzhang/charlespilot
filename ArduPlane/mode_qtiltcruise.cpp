@@ -141,6 +141,7 @@ void ModeQTiltCruise::run()
             _apply_tc_yaw_pids();
         } else if (!in_cruise_submode && _prev_in_tc_cruise) {
             _restore_yaw_pids();
+            quadplane.init_z_for_altitude_hold();
         }
         _prev_in_tc_cruise = in_cruise_submode;
 
@@ -166,18 +167,14 @@ void ModeQTiltCruise::run()
         } else {
             // -----------------------------------------------------------
             // QUAD sub-mode: cruise stick threshold not met.
-            // No altitude control — throttle goes straight to motors,
-            // exactly like QSTABILIZE. Tiltrotor::continuous_update()
-            // slews servos back to vertical independently.
-            //
-            // Relax the Z-axis controller so it carries no stale
-            // integrator state into the next tilt-cruise engagement.
-            // Without this, a rapid stick-back/stick-forward cycle would
-            // resume hold_hover() with accumulated position error and
-            // produce a sudden throttle spike.
+            // Altitude is held via the Z-axis PID controller, identical to
+            // QHover: mid-stick = hold altitude, above = climb, below = descend.
+            // init_z_for_altitude_hold() is called at the TC→quad boundary so
+            // the PID enters with zero velocity target and a neutral I-term.
+            // Tiltrotor::continuous_update() slews servos back to vertical
+            // independently.
             // -----------------------------------------------------------
-            pos_control->D_relax_controller(quadplane.motors->get_throttle_hover());
-            quadplane.hold_stabilize(quadplane.get_pilot_throttle());
+            quadplane.hold_hover(quadplane.get_pilot_desired_climb_rate_cms());
         }
     }
 

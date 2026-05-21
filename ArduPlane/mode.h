@@ -943,10 +943,6 @@ public:
     const char *name4() const override { return "QTLT"; }
 
     bool is_vtol_mode() const override { return true; }
-    // The quad sub-mode (pitch stick ≤ 0) passes throttle directly to motors,
-    // so the framework must treat this as a manual-throttle mode for landed
-    // detection, throttle-mix selection, and air-mode behaviour.
-    bool is_vtol_man_throttle() const override { return true; }
     virtual bool is_vtol_man_mode() const override { return true; }
     bool allows_throttle_nudging() const override { return true; }
 
